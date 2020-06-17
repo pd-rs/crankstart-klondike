@@ -1,0 +1,17 @@
+[package]
+name = "klondike"
+version = "0.1.0"
+authors = ["Rob Tsuk <rob@tsuk.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = { version = "1.0.31", default-features = false }
+hashbrown = "0.7.2"
+enum-iterator = "0.6.0"
+euclid = { version = "0.20.13", default-features = false, features = [ "libm" ] }
+rand = { version = "", default-features = false, features = [ "alloc" ] }
+rand_pcg = "0.2.1"
+
+[[bin]]
+name = "klondike_solver"
+path = "src/klondike_solver.rs"
