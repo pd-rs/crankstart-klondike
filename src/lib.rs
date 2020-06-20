@@ -3,9 +3,12 @@
 
 extern crate alloc;
 
+mod klondike;
+
+use crate::klondike::*;
 use alloc::{boxed::Box, collections::BTreeMap, format, string::String, vec::Vec};
 use anyhow::Error;
-use core::mem;
+use core::{iter, mem};
 use crankstart::{
     crankstart_game,
     graphics::{
@@ -40,171 +43,6 @@ const CARD_HEIGHT: i32 = 70;
 
 const CRANK_THRESHHOLD: i32 = 10;
 
-#[derive(Clone, Copy, Debug, Eq, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
-enum StackId {
-    Stock,
-    Waste,
-    Foundation1,
-    Foundation2,
-    Foundation3,
-    Foundation4,
-    Tableau1,
-    Tableau2,
-    Tableau3,
-    Tableau4,
-    Tableau5,
-    Tableau6,
-    Tableau7,
-    Hand,
-}
-
-impl StackId {
-    fn next(&self) -> Self {
-        match self {
-            StackId::Stock => StackId::Waste,
-            StackId::Waste => StackId::Foundation1,
-            StackId::Foundation1 => StackId::Foundation2,
-            StackId::Foundation2 => StackId::Foundation3,
-            StackId::Foundation3 => StackId::Foundation4,
-            StackId::Foundation4 => StackId::Tableau1,
-            StackId::Tableau1 => StackId::Tableau2,
-            StackId::Tableau2 => StackId::Tableau3,
-            StackId::Tableau3 => StackId::Tableau4,
-            StackId::Tableau4 => StackId::Tableau5,
-            StackId::Tableau5 => StackId::Tableau6,
-            StackId::Tableau6 => StackId::Tableau7,
-            StackId::Tableau7 => StackId::Stock,
-            StackId::Hand => StackId::Hand,
-        }
-    }
-
-    fn previous(&self) -> Self {
-        match self {
-            StackId::Stock => StackId::Tableau7,
-            StackId::Waste => StackId::Stock,
-            StackId::Foundation1 => StackId::Waste,
-            StackId::Foundation2 => StackId::Foundation1,
-            StackId::Foundation3 => StackId::Foundation2,
-            StackId::Foundation4 => StackId::Foundation3,
-            StackId::Tableau1 => StackId::Foundation4,
-            StackId::Tableau2 => StackId::Tableau1,
-            StackId::Tableau3 => StackId::Tableau2,
-            StackId::Tableau4 => StackId::Tableau3,
-            StackId::Tableau5 => StackId::Tableau4,
-            StackId::Tableau6 => StackId::Tableau5,
-            StackId::Tableau7 => StackId::Tableau6,
-            StackId::Hand => StackId::Hand,
-        }
-    }
-}
-
-const FOUNDATIONS: &[StackId] = &[
-    StackId::Foundation1,
-    StackId::Foundation2,
-    StackId::Foundation3,
-    StackId::Foundation4,
-];
-
-const TABLEAUX: &[StackId] = &[
-    StackId::Tableau1,
-    StackId::Tableau2,
-    StackId::Tableau3,
-    StackId::Tableau4,
-    StackId::Tableau5,
-    StackId::Tableau6,
-    StackId::Tableau7,
-];
-
-#[derive(Clone, Copy, Debug, Eq, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
-enum StackType {
-    Stock,
-    Waste,
-    Foundation,
-    Tableau,
-    Hand,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
-enum Suit {
-    Diamond = 2,
-    Club = 1,
-    Heart = 3,
-    Spade = 4,
-}
-
-#[derive(Debug, PartialEq)]
-enum Color {
-    Black,
-    Red,
-}
-
-impl Suit {
-    fn color(&self) -> Color {
-        match self {
-            Suit::Diamond | Suit::Heart => Color::Red,
-            Suit::Club | Suit::Spade => Color::Black,
-        }
-    }
-}
-
-//const SUITS: &[Suit] = &[Suit::Diamond, Suit::Club, Suit::Heart, Suit::Spade];
-
-#[derive(Clone, Copy, Debug, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
-enum Rank {
-    Ace = 1,
-    Two,
-    Three,
-    Four,
-    Five,
-    Six,
-    Seven,
-    Eight,
-    Nine,
-    Ten,
-    Jack,
-    Queen,
-    King,
-}
-
-impl From<Rank> for &'static str {
-    fn from(rank: Rank) -> Self {
-        let label = match rank {
-            Rank::Ace => "A",
-            Rank::Two => "2",
-            Rank::Three => "3",
-            Rank::Four => "4",
-            Rank::Five => "5",
-            Rank::Six => "6",
-            Rank::Seven => "7",
-            Rank::Eight => "8",
-            Rank::Nine => "9",
-            Rank::Ten => "T",
-            Rank::Jack => "J",
-            Rank::Queen => "Q",
-            Rank::King => "K",
-        };
-        label
-    }
-}
-
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Card {
-    suit: Suit,
-    rank: Rank,
-    face_up: bool,
-}
-
-impl Card {
-    fn is_same_color(&self, other: &Card) -> bool {
-        self.suit.color() == other.suit.color()
-    }
-
-    fn is_one_below(&self, other: &Card) -> bool {
-        let delta = other.rank as i32 - self.rank as i32;
-        delta == 1
-    }
-}
-
 pub struct ScreenSpace;
 pub type ScreenPoint = Point2D<i32, ScreenSpace>;
 pub type ScreenVector = Vector2D<i32, ScreenSpace>;
@@ -222,46 +60,13 @@ enum StackDrawMode {
 }
 
 #[derive(Debug)]
-struct Stack {
+struct StackView {
     stack_id: StackId,
-    stack_type: StackType,
     position: ScreenPoint,
-    cards: Vec<Card>,
     mode: StackDrawMode,
 }
 
-impl Stack {
-    pub fn top_card_index(&self) -> usize {
-        if self.cards.is_empty() {
-            0
-        } else {
-            self.cards.len() - 1
-        }
-    }
-
-    pub fn bottom_card(&self) -> Option<&Card> {
-        if self.cards.is_empty() {
-            None
-        } else {
-            Some(&self.cards[0])
-        }
-    }
-
-    pub fn top_card(&self) -> Option<&Card> {
-        if self.cards.is_empty() {
-            None
-        } else {
-            Some(&self.cards[self.cards.len() - 1])
-        }
-    }
-
-    pub fn expose_top_card(&mut self) {
-        if !self.cards.is_empty() {
-            let last_index = self.cards.len() - 1;
-            self.cards[last_index].face_up = true;
-        }
-    }
-
+impl StackView {
     pub fn get_card_position(&self, index: usize) -> ScreenPoint {
         let (vector, count) = match &self.mode {
             StackDrawMode::Squared => (ScreenVector::zero(), 0),
@@ -275,124 +80,13 @@ impl Stack {
     }
 
     #[allow(unused)]
-    pub fn get_top_card_position(&self) -> ScreenPoint {
-        let index = if self.cards.is_empty() {
+    pub fn get_top_card_position(&self, stack: &Stack) -> ScreenPoint {
+        let index = if stack.cards.is_empty() {
             0
         } else {
-            self.cards.len() - 1
+            stack.cards.len() - 1
         };
         self.get_card_position(index)
-    }
-
-    pub fn previous_active_card(&self, start_index: Option<usize>) -> Option<usize> {
-        if self.cards.is_empty() {
-            return None;
-        }
-        let max_index = self.cards.len() - 1;
-        let index = if let Some(start_index) = start_index {
-            if start_index == 0 {
-                return None;
-            }
-            start_index - 1
-        } else {
-            max_index
-        };
-        match self.stack_type {
-            StackType::Stock | StackType::Foundation | StackType::Waste => {
-                if start_index.is_none() {
-                    Some(max_index)
-                } else {
-                    None
-                }
-            }
-            _ => {
-                for active_index in (0..=index).rev() {
-                    if self.cards[active_index].face_up {
-                        return Some(active_index);
-                    }
-                }
-                None
-            }
-        }
-    }
-
-    pub fn next_active_card(&self, start_index: Option<usize>) -> Option<usize> {
-        if self.cards.is_empty() {
-            if self.stack_type == StackType::Stock {
-                return Some(0);
-            }
-            return None;
-        }
-        let max_index = self.cards.len() - 1;
-        let index = if let Some(start_index) = start_index {
-            start_index + 1
-        } else {
-            0
-        };
-        if index <= max_index {
-            match self.stack_type {
-                StackType::Stock | StackType::Foundation | StackType::Waste => Some(max_index),
-                _ => {
-                    for active_index in index..=max_index {
-                        if self.cards[active_index].face_up {
-                            return Some(active_index);
-                        }
-                    }
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    }
-
-    fn foundation_can_accept_hand(&self, hand: &Stack) -> bool {
-        if hand.cards.len() > 1 {
-            false
-        } else {
-            if let Some(card) = &hand.top_card() {
-                if self.cards.is_empty() {
-                    card.rank == Rank::Ace
-                } else {
-                    if let Some(top_card) = self.top_card() {
-                        if card.suit == top_card.suit {
-                            top_card.is_one_below(card)
-                        } else {
-                            false
-                        }
-                    } else {
-                        log_to_console!("foundation has no top card {:?}", self);
-                        false
-                    }
-                }
-            } else {
-                false
-            }
-        }
-    }
-
-    fn tableau_can_accept_hand(&self, hand: &Stack) -> bool {
-        if let Some(card) = &hand.bottom_card() {
-            if let Some(top_card) = self.top_card() {
-                if !top_card.is_same_color(card) {
-                    card.is_one_below(top_card)
-                } else {
-                    false
-                }
-            } else {
-                card.rank == Rank::King
-            }
-        } else {
-            false
-        }
-    }
-
-    pub fn can_play(&self, hand: &Stack) -> bool {
-        match self.stack_type {
-            StackType::Foundation => self.foundation_can_accept_hand(hand),
-            StackType::Tableau => self.tableau_can_accept_hand(hand),
-            _ => false,
-        }
     }
 
     fn draw_empty(&self, resources: &Resources) -> Result<(), Error> {
@@ -434,8 +128,8 @@ impl Stack {
         Ok(())
     }
 
-    fn draw_squared(&self, resources: &Resources) -> Result<(), Error> {
-        let card = &self.cards[self.cards.len() - 1];
+    fn draw_squared(&self, stack: &Stack, resources: &Resources) -> Result<(), Error> {
+        let card = &stack.cards[stack.cards.len() - 1];
         let bitmap = if card.face_up {
             resources
                 .card_bitmaps
@@ -458,12 +152,13 @@ impl Stack {
 
     fn draw_fanned(
         &self,
+        stack: &Stack,
         resources: &Resources,
         source: &Source,
         direction: &FanDirection,
         visible: usize,
     ) -> Result<(), Error> {
-        let cards_in_stack = self.cards.len();
+        let cards_in_stack = stack.cards.len();
         let cards_to_draw = cards_in_stack.min(visible);
         let mut card_pos = self.position;
 
@@ -475,11 +170,11 @@ impl Stack {
         let start = cards_in_stack - cards_to_draw;
         let max_index = cards_in_stack - 1;
         for index in start..cards_in_stack {
-            let card = &self.cards[index];
+            let card = &stack.cards[index];
             if card.face_up
                 && index < max_index
                 && index == source.index
-                && self.stack_id == source.stack
+                && stack.stack_id == source.stack
             {
                 let peeked = card_pos - Vector2D::new(0, CARD_HEIGHT / 4);
                 Self::draw_card_at(card, &peeked, resources)?;
@@ -492,44 +187,19 @@ impl Stack {
         Ok(())
     }
 
-    fn draw(&self, source: &Source, resources: &Resources) -> Result<(), Error> {
-        if self.cards.len() == 0 {
+    fn draw(&self, source: &Source, stack: &Stack, resources: &Resources) -> Result<(), Error> {
+        if stack.cards.len() == 0 {
             self.draw_empty(resources)?;
         } else {
             match &self.mode {
-                StackDrawMode::Squared => self.draw_squared(resources)?,
+                StackDrawMode::Squared => self.draw_squared(stack, resources)?,
                 StackDrawMode::Fanned(direction, visible) => {
-                    self.draw_fanned(resources, source, direction, *visible)?
+                    self.draw_fanned(stack, resources, source, direction, *visible)?
                 }
             }
         }
         Ok(())
     }
-
-    fn flip_top_card(&mut self) {
-        if !self.cards.is_empty() {
-            let index = self.cards.len() - 1;
-            let card = &mut self.cards[index];
-            card.face_up = !card.face_up;
-        }
-    }
-}
-
-fn make_deck() -> Vec<Card> {
-    let mut rng = rand_pcg::Pcg32::seed_from_u64(321);
-
-    let mut cards: Vec<Card> = Suit::into_enum_iter()
-        .map(move |suit| {
-            Rank::into_enum_iter().map(move |rank| Card {
-                suit,
-                rank,
-                face_up: false,
-            })
-        })
-        .flatten()
-        .collect();
-    cards.shuffle(&mut rng);
-    cards
 }
 
 struct Resources {
@@ -541,29 +211,9 @@ struct Resources {
     point: Bitmap,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Source {
-    stack: StackId,
-    index: usize,
-}
-
-impl Source {
-    fn stock() -> Self {
-        Source {
-            stack: StackId::Stock,
-            index: 0,
-        }
-    }
-}
-
 struct KlondikeGame {
-    stock: Stack,
-    waste: Stack,
-    foundations: Vec<Stack>,
-    tableaux: Vec<Stack>,
-    source: Source,
-    in_hand: Stack,
-    target: StackId,
+    table: Table,
+    views: HashMap<StackId, StackView>,
     #[allow(unused)]
     cards_table: BitmapTable,
     resources: Resources,
@@ -604,7 +254,7 @@ impl KlondikeGame {
     }
 
     pub fn new(playdate: &Playdate) -> Result<Box<Self>, Error> {
-        let mut cards = make_deck();
+        let table = Table::new(321);
         let graphics = playdate.graphics();
         let cards_table = graphics.load_bitmap_table("assets/cards")?;
 
@@ -617,276 +267,59 @@ impl KlondikeGame {
             MARGIN,
         );
 
-        let foundations: Vec<Stack> = FOUNDATIONS
-            .iter()
-            .map(|foundation| {
-                let stack = Stack {
-                    stack_id: *foundation,
-                    stack_type: StackType::Foundation,
-                    position,
-                    cards: Vec::new(),
-                    mode: StackDrawMode::Squared,
-                };
-                position.x += CARD_WIDTH + GUTTER;
-                stack
-            })
-            .collect();
+        let foundations = FOUNDATIONS.iter().map(|foundation| {
+            let stack = StackView {
+                stack_id: *foundation,
+                position,
+                mode: StackDrawMode::Squared,
+            };
+            position.x += CARD_WIDTH + GUTTER;
+            stack
+        });
 
         let mut position = ScreenPoint::new(MARGIN, MARGIN + CARD_HEIGHT + GUTTER);
         let mut stack_count = 1;
-        let tableaux: Vec<Stack> = TABLEAUX
-            .iter()
-            .map(|tableau| {
-                let start = cards.len() - stack_count;
-                let mut stack = Stack {
-                    stack_id: *tableau,
-                    stack_type: StackType::Tableau,
-                    position,
-                    cards: cards.split_off(start),
-                    mode: StackDrawMode::Fanned(FanDirection::Down, 52),
-                };
-                stack.flip_top_card();
-                stack_count += 1;
-                position.x += 55;
-                stack
-            })
-            .collect();
+        let tableaux = TABLEAUX.iter().map(|tableau| {
+            let stack = StackView {
+                stack_id: *tableau,
+                position,
+                mode: StackDrawMode::Fanned(FanDirection::Down, 52),
+            };
+            stack_count += 1;
+            position.x += 55;
+            stack
+        });
 
-        let stock = Stack {
+        let stock = StackView {
             stack_id: StackId::Stock,
-            stack_type: StackType::Stock,
             position: ScreenPoint::new(MARGIN, MARGIN),
-            cards: cards,
             mode: StackDrawMode::Squared,
         };
-        let waste = Stack {
+        let waste = StackView {
             stack_id: StackId::Waste,
-            stack_type: StackType::Waste,
             position: ScreenPoint::new(MARGIN + GUTTER + CARD_WIDTH, MARGIN),
-            cards: Vec::new(),
             mode: StackDrawMode::Fanned(FanDirection::Right, 3),
         };
-        let in_hand = Stack {
+        let in_hand = StackView {
             stack_id: StackId::Hand,
-            stack_type: StackType::Hand,
             position: ScreenPoint::zero(),
-            cards: Vec::new(),
             mode: StackDrawMode::Squared,
         };
+
+        let views: HashMap<StackId, StackView> = foundations
+            .chain(tableaux)
+            .chain(iter::once(stock))
+            .chain(iter::once(waste).chain(iter::once(in_hand)))
+            .map(|stack_view| (stack_view.stack_id, stack_view))
+            .collect();
         let resources = Self::load_resources(&cards_table, playdate.graphics())?;
-        let source_index = stock.next_active_card(None).unwrap_or(0);
         Ok(Box::new(Self {
-            stock,
-            waste,
-            foundations,
-            tableaux,
-            source: Source {
-                stack: StackId::Stock,
-                index: source_index,
-            },
-            in_hand,
-            target: StackId::Stock,
+            table,
+            views,
             cards_table,
             resources,
             crank_threshhold: 0,
         }))
-    }
-
-    fn get_stack(&self, stack_type: StackId) -> &Stack {
-        match stack_type {
-            StackId::Stock => &self.stock,
-            StackId::Waste => &self.waste,
-            StackId::Foundation1 => &self.foundations[0],
-            StackId::Foundation2 => &self.foundations[1],
-            StackId::Foundation3 => &self.foundations[2],
-            StackId::Foundation4 => &self.foundations[3],
-            StackId::Tableau1 => &self.tableaux[0],
-            StackId::Tableau2 => &self.tableaux[1],
-            StackId::Tableau3 => &self.tableaux[2],
-            StackId::Tableau4 => &self.tableaux[3],
-            StackId::Tableau5 => &self.tableaux[4],
-            StackId::Tableau6 => &self.tableaux[5],
-            StackId::Tableau7 => &self.tableaux[6],
-            StackId::Hand => &self.in_hand,
-        }
-    }
-
-    fn get_stack_mut(&mut self, stack_type: StackId) -> &mut Stack {
-        match stack_type {
-            StackId::Stock => &mut self.stock,
-            StackId::Waste => &mut self.waste,
-            StackId::Foundation1 => &mut self.foundations[0],
-            StackId::Foundation2 => &mut self.foundations[1],
-            StackId::Foundation3 => &mut self.foundations[2],
-            StackId::Foundation4 => &mut self.foundations[3],
-            StackId::Tableau1 => &mut self.tableaux[0],
-            StackId::Tableau2 => &mut self.tableaux[1],
-            StackId::Tableau3 => &mut self.tableaux[2],
-            StackId::Tableau4 => &mut self.tableaux[3],
-            StackId::Tableau5 => &mut self.tableaux[4],
-            StackId::Tableau6 => &mut self.tableaux[5],
-            StackId::Tableau7 => &mut self.tableaux[6],
-            StackId::Hand => &mut self.in_hand,
-        }
-    }
-
-    fn cards_in_hand(&self) -> bool {
-        self.in_hand.cards.len() > 0
-    }
-
-    fn next_active_card(&self) -> Option<Source> {
-        let mut source = self.source;
-        let mut start = Some(source.index);
-        loop {
-            let source_stack = self.get_stack(source.stack);
-            let next_index = source_stack.next_active_card(start);
-            if next_index.is_some() {
-                return Some(Source {
-                    stack: source.stack,
-                    index: next_index.unwrap(),
-                });
-            } else {
-                source.stack = source.stack.next();
-                start = None;
-            }
-        }
-    }
-
-    fn previous_active_card(&self) -> Option<Source> {
-        let mut source = self.source;
-        let mut start = Some(source.index);
-        loop {
-            let source_stack = self.get_stack(source.stack);
-            let previous_index = source_stack.previous_active_card(start);
-            if previous_index.is_some() {
-                return Some(Source {
-                    stack: source.stack,
-                    index: previous_index.unwrap(),
-                });
-            } else {
-                source.stack = source.stack.previous();
-                start = None;
-            }
-        }
-    }
-
-    fn next_play_location(&self) -> StackId {
-        let orginal_stack = self.target;
-        let mut target = orginal_stack.next();
-        loop {
-            let target_stack = self.get_stack(target);
-            if target_stack.can_play(&self.in_hand) {
-                break;
-            } else {
-                target = target.next();
-            }
-            if target == self.source.stack {
-                break;
-            }
-        }
-        target
-    }
-
-    fn previous_play_location(&self) -> StackId {
-        let orginal_stack = self.target;
-        let mut target = orginal_stack.previous();
-        loop {
-            let target_stack = self.get_stack(target);
-            if target_stack.can_play(&self.in_hand) {
-                break;
-            } else {
-                target = target.previous();
-            }
-            if target == self.source.stack {
-                break;
-            }
-        }
-        target
-    }
-
-    fn deal_from_stock(&mut self) {
-        let amount_to_deal = 3.min(self.stock.cards.len());
-        if amount_to_deal == 0 {
-            mem::swap(&mut self.waste.cards, &mut self.stock.cards);
-            for mut card in &mut self.stock.cards {
-                card.face_up = false;
-            }
-            self.stock.cards.reverse();
-        } else {
-            let start = self.stock.cards.len() - amount_to_deal;
-            let mut dealt_cards = self.stock.cards.split_off(start);
-            for mut card in &mut dealt_cards {
-                card.face_up = true;
-            }
-            self.waste.cards.append(&mut dealt_cards);
-        }
-    }
-
-    fn expose_top_card_of_stack(&mut self, stack_id: StackId) {
-        let stack = self.get_stack_mut(stack_id);
-        stack.expose_top_card();
-    }
-
-    fn take_top_card_from_stack(&mut self, stack_id: StackId) {
-        let stack = self.get_stack_mut(stack_id);
-        let count = stack.cards.len();
-        if count > 0 {
-            let last_index = count - 1;
-            let pt = stack.get_card_position(last_index);
-            let mut card = stack.cards.remove(last_index);
-            card.face_up = true;
-            self.in_hand.cards.push(card);
-            self.in_hand.position = pt + Vector2D::new(10, 10);
-        }
-    }
-
-    fn take_selected_cards_from_stack(&mut self, stack_id: StackId, index: usize) {
-        let cards_for_hand = {
-            let stack = self.get_stack_mut(stack_id);
-            stack.cards.split_off(index)
-        };
-        let stack = self.get_stack(stack_id);
-        let count = cards_for_hand.len();
-        if count > 0 {
-            let last_index = count - 1;
-            let pt = stack.get_card_position(last_index);
-            self.in_hand.position = pt + Vector2D::new(10, 10);
-            self.in_hand.cards = cards_for_hand;
-        }
-    }
-
-    fn put_hand_on_target(&mut self) {
-        let target = self.target;
-        let mut cards = Vec::new();
-        mem::swap(&mut cards, &mut self.in_hand.cards);
-        let target_stack = self.get_stack_mut(target);
-        let index = target_stack.cards.len();
-        target_stack.cards.append(&mut cards);
-        self.expose_top_card_of_stack(self.source.stack);
-        self.source = Source {
-            stack: target,
-            index: index,
-        };
-    }
-
-    fn go_next(&mut self) -> Result<(), Error> {
-        if self.cards_in_hand() {
-            self.target = self.next_play_location();
-        } else {
-            self.source = self.next_active_card().unwrap_or_else(|| Source::stock())
-        }
-        Ok(())
-    }
-
-    fn go_previous(&mut self) -> Result<(), Error> {
-        if self.cards_in_hand() {
-            self.target = self.previous_play_location();
-        } else {
-            self.source = self
-                .previous_active_card()
-                .unwrap_or_else(|| Source::stock());
-        }
-        Ok(())
     }
 
     fn check_crank(&mut self, playdate: &mut Playdate) -> Result<(), Error> {
@@ -894,10 +327,10 @@ impl KlondikeGame {
         self.crank_threshhold += change;
 
         if self.crank_threshhold > CRANK_THRESHHOLD {
-            self.go_next()?;
+            self.table.go_next()?;
             self.crank_threshhold = -CRANK_THRESHHOLD;
         } else if self.crank_threshhold < -CRANK_THRESHHOLD {
-            self.go_previous()?;
+            self.table.go_previous()?;
             self.crank_threshhold = CRANK_THRESHHOLD;
         }
         Ok(())
@@ -906,33 +339,36 @@ impl KlondikeGame {
     fn check_buttons(&mut self, playdate: &mut Playdate) -> Result<(), Error> {
         let (_, pushed, _) = playdate.system().get_button_state()?;
         if (pushed & PDButtons_kButtonA) != 0 || (pushed & PDButtons_kButtonB) != 0 {
-            if self.cards_in_hand() {
-                self.put_hand_on_target();
+            if self.table.cards_in_hand() {
+                self.table.put_hand_on_target();
             } else {
-                match self.source.stack {
-                    StackId::Stock => self.deal_from_stock(),
+                match self.table.source.stack {
+                    StackId::Stock => self.table.deal_from_stock(),
                     StackId::Waste
                     | StackId::Foundation1
                     | StackId::Foundation2
                     | StackId::Foundation3
-                    | StackId::Foundation4 => self.take_top_card_from_stack(self.source.stack),
+                    | StackId::Foundation4 => {
+                        self.table.take_top_card_from_stack(self.table.source.stack)
+                    }
                     StackId::Tableau1
                     | StackId::Tableau2
                     | StackId::Tableau3
                     | StackId::Tableau4
                     | StackId::Tableau5
                     | StackId::Tableau6
-                    | StackId::Tableau7 => {
-                        self.take_selected_cards_from_stack(self.source.stack, self.source.index)
-                    }
+                    | StackId::Tableau7 => self.table.take_selected_cards_from_stack(
+                        self.table.source.stack,
+                        self.table.source.index,
+                    ),
                     StackId::Hand => (),
                 }
-                self.target = self.source.stack;
+                self.table.target = self.table.source.stack;
             }
         } else if pushed & PDButtons_kButtonLeft != 0 {
-            self.go_previous()?;
+            self.table.go_previous()?;
         } else if pushed & PDButtons_kButtonRight != 0 {
-            self.go_next()?;
+            self.table.go_next()?;
         }
         Ok(())
     }
@@ -946,28 +382,40 @@ impl Game for KlondikeGame {
         self.check_crank(playdate)?;
         self.check_buttons(playdate)?;
 
-        playdate.graphics().clear(SolidColor::White)?;
-        self.stock.draw(&self.source, &self.resources)?;
-        self.waste.draw(&self.source, &self.resources)?;
-        for stack in &self.foundations {
-            stack.draw(&self.source, &self.resources)?;
-        }
-        for stack in &self.tableaux {
-            stack.draw(&self.source, &self.resources)?;
+        let cards_in_hand = self.table.cards_in_hand();
+        if cards_in_hand {
+            let top_card_index = self.table.get_stack(self.table.target).top_card_index();
+            let position = self
+                .views
+                .get(&self.table.target)
+                .and_then(|view| {
+                    Some(view.get_card_position(top_card_index) + Vector2D::new(10, 10))
+                })
+                .unwrap_or_else(|| ScreenPoint::zero());
+            if let Some(in_hand) = self.views.get_mut(&StackId::Hand) {
+                in_hand.position = position;
+            }
         }
 
-        let cards_in_hand = self.cards_in_hand();
+        playdate.graphics().clear(SolidColor::White)?;
+
+        for (stack_id, view) in &self.views {
+            if *stack_id != StackId::Hand || cards_in_hand {
+                let stack = self.table.get_stack(*stack_id);
+                view.draw(&self.table.source, stack, &self.resources)?;
+            }
+        }
 
         let position = if cards_in_hand {
-            let target = self.get_stack(self.target);
+            let target = self.table.get_stack(self.table.target);
+            let target_view = self.views.get(&target.stack_id).expect("target_view");
             let position =
-                target.get_card_position(target.top_card_index()) + Vector2D::new(10, 10);
-            self.in_hand.position = position;
-            self.in_hand.draw(&self.source, &self.resources)?;
+                target_view.get_card_position(target.top_card_index()) + Vector2D::new(10, 10);
             position
         } else {
-            let source = self.get_stack(self.source.stack);
-            source.get_card_position(self.source.index)
+            let source = self.table.get_stack(self.table.source.stack);
+            let source_view = self.views.get(&source.stack_id).expect("source_view");
+            source_view.get_card_position(self.table.source.index)
         };
 
         self.resources.point.draw(

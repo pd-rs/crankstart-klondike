@@ -26,7 +26,3 @@ enum-iterator = "0.6.0"
 euclid = { version = "0.20.13", default-features = false, features = [ "libm" ] }
 rand = { version = "", default-features = false, features = [ "alloc" ] }
 rand_pcg = "0.2.1"
-
-[[bin]]
-name = "klondike_solver"
-path = "src/klondike_solver.rs"
