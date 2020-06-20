@@ -1,0 +1,6 @@
+[[target]]
+    name = "klondike"
+    assets = [
+        "assets/cards-table-50-70.png",
+        "assets/point.png",
+    ]

@@ -4,8 +4,23 @@ version = "0.1.0"
 authors = ["Rob Tsuk <rob@tsuk.com>"]
 edition = "2018"
 
+[profile.dev]
+panic = "abort"
+opt-level = 'z'
+lto = true
+
+[profile.release]
+panic = "abort"
+opt-level = 'z'
+lto = true
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
 [dependencies]
 anyhow = { version = "1.0.31", default-features = false }
+crankstart = { path = "../crankstart" }
+crankstart-sys = { path = "../crankstart/crankstart-sys" }
 hashbrown = "0.7.2"
 enum-iterator = "0.6.0"
 euclid = { version = "0.20.13", default-features = false, features = [ "libm" ] }
