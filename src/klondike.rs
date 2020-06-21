@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use alloc::vec::Vec;
+use alloc::{fmt, vec::Vec};
 use anyhow::Error;
 use core::mem;
 use enum_iterator::IntoEnumIterator;
@@ -25,23 +25,37 @@ pub enum StackId {
 }
 
 impl StackId {
-    pub fn next(&self) -> Self {
+    fn next_impl(&self, wrap: bool) -> Option<Self> {
         match self {
-            StackId::Stock => StackId::Waste,
-            StackId::Waste => StackId::Foundation1,
-            StackId::Foundation1 => StackId::Foundation2,
-            StackId::Foundation2 => StackId::Foundation3,
-            StackId::Foundation3 => StackId::Foundation4,
-            StackId::Foundation4 => StackId::Tableau1,
-            StackId::Tableau1 => StackId::Tableau2,
-            StackId::Tableau2 => StackId::Tableau3,
-            StackId::Tableau3 => StackId::Tableau4,
-            StackId::Tableau4 => StackId::Tableau5,
-            StackId::Tableau5 => StackId::Tableau6,
-            StackId::Tableau6 => StackId::Tableau7,
-            StackId::Tableau7 => StackId::Stock,
-            StackId::Hand => StackId::Hand,
+            StackId::Stock => Some(StackId::Waste),
+            StackId::Waste => Some(StackId::Foundation1),
+            StackId::Foundation1 => Some(StackId::Foundation2),
+            StackId::Foundation2 => Some(StackId::Foundation3),
+            StackId::Foundation3 => Some(StackId::Foundation4),
+            StackId::Foundation4 => Some(StackId::Tableau1),
+            StackId::Tableau1 => Some(StackId::Tableau2),
+            StackId::Tableau2 => Some(StackId::Tableau3),
+            StackId::Tableau3 => Some(StackId::Tableau4),
+            StackId::Tableau4 => Some(StackId::Tableau5),
+            StackId::Tableau5 => Some(StackId::Tableau6),
+            StackId::Tableau6 => Some(StackId::Tableau7),
+            StackId::Tableau7 => {
+                if wrap {
+                    Some(StackId::Stock)
+                } else {
+                    None
+                }
+            }
+            StackId::Hand => Some(StackId::Hand),
         }
+    }
+
+    pub fn next_no_wrap(&self) -> Option<Self> {
+        self.next_impl(false)
+    }
+
+    pub fn next(&self) -> Self {
+        self.next_impl(true).expect("next")
     }
 
     pub fn previous(&self) -> Self {
@@ -90,12 +104,24 @@ pub enum StackType {
     Hand,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
 pub enum Suit {
     Diamond = 2,
     Club = 1,
     Heart = 3,
     Spade = 4,
+}
+
+impl fmt::Debug for Suit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Suit::Diamond => "♦️",
+            Suit::Club => "♣️",
+            Suit::Heart => "♥️",
+            Suit::Spade => "♠️",
+        };
+        f.write_str(s)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -153,7 +179,7 @@ impl From<Rank> for &'static str {
     }
 }
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
 pub struct Card {
     pub suit: Suit,
     pub rank: Rank,
@@ -171,7 +197,14 @@ impl Card {
     }
 }
 
-#[derive(Debug)]
+impl fmt::Debug for Card {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let face_up = if self.face_up { "" } else { "-" };
+        let rank: &str = self.rank.into();
+        f.write_fmt(format_args!("{}{}{:?}", face_up, rank, self.suit))
+    }
+}
+
 pub struct Stack {
     pub stack_id: StackId,
     pub stack_type: StackType,
@@ -272,23 +305,15 @@ impl Stack {
         }
     }
 
-    pub fn foundation_can_accept_hand(&self, hand: &Stack) -> bool {
-        if hand.cards.len() > 1 {
-            false
+    pub fn foundation_can_accept_card(&self, card: &Card) -> bool {
+        if self.cards.is_empty() {
+            card.rank == Rank::Ace
         } else {
-            if let Some(card) = &hand.top_card() {
-                if self.cards.is_empty() {
-                    card.rank == Rank::Ace
+            if let Some(top_card) = self.top_card() {
+                if card.suit == top_card.suit {
+                    top_card.is_one_below(card)
                 } else {
-                    if let Some(top_card) = self.top_card() {
-                        if card.suit == top_card.suit {
-                            top_card.is_one_below(card)
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
+                    false
                 }
             } else {
                 false
@@ -296,17 +321,33 @@ impl Stack {
         }
     }
 
+    pub fn foundation_can_accept_hand(&self, hand: &Stack) -> bool {
+        if hand.cards.len() > 1 {
+            false
+        } else {
+            if let Some(card) = &hand.top_card() {
+                self.foundation_can_accept_card(card)
+            } else {
+                false
+            }
+        }
+    }
+
+    pub fn tableau_can_accept_card(&self, card: &Card) -> bool {
+        if let Some(top_card) = self.top_card() {
+            if !top_card.is_same_color(card) {
+                card.is_one_below(top_card)
+            } else {
+                false
+            }
+        } else {
+            card.rank == Rank::King
+        }
+    }
+
     pub fn tableau_can_accept_hand(&self, hand: &Stack) -> bool {
         if let Some(card) = &hand.bottom_card() {
-            if let Some(top_card) = self.top_card() {
-                if !top_card.is_same_color(card) {
-                    card.is_one_below(top_card)
-                } else {
-                    false
-                }
-            } else {
-                card.rank == Rank::King
-            }
+            self.tableau_can_accept_card(card)
         } else {
             false
         }
@@ -320,12 +361,37 @@ impl Stack {
         }
     }
 
+    pub fn can_play_card(&self, card: &Card) -> bool {
+        match self.stack_type {
+            StackType::Foundation => self.foundation_can_accept_card(card),
+            StackType::Tableau => self.tableau_can_accept_card(card),
+            _ => false,
+        }
+    }
+
     pub fn flip_top_card(&mut self) {
         if !self.cards.is_empty() {
             let index = self.cards.len() - 1;
             let card = &mut self.cards[index];
             card.face_up = !card.face_up;
         }
+    }
+}
+
+impl fmt::Debug for Stack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_fmt(format_args!("{:?}: [", self.stack_id))?;
+        if self.cards.len() > 0 {
+            let last_index = self.cards.len() - 1;
+            for (index, card) in self.cards.iter().enumerate() {
+                f.write_fmt(format_args!("{:?}", card))?;
+                if index < last_index {
+                    f.write_str(", ")?;
+                }
+            }
+        }
+        f.write_str("]")?;
+        Ok(())
     }
 }
 
@@ -471,6 +537,14 @@ impl Table {
 
     pub fn cards_in_hand(&self) -> bool {
         self.in_hand.cards.len() > 0
+    }
+
+    pub fn has_cards_in_stock(&self) -> bool {
+        self.stock.cards.len() > 0
+    }
+
+    pub fn has_cards_in_waste(&self) -> bool {
+        self.waste.cards.len() > 0
     }
 
     pub fn next_active_card(&self) -> Option<Source> {
