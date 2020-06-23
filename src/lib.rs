@@ -254,7 +254,7 @@ impl KlondikeGame {
     }
 
     pub fn new(playdate: &Playdate) -> Result<Box<Self>, Error> {
-        let table = Table::new(321);
+        let table = Table::new(331);
         let graphics = playdate.graphics();
         let cards_table = graphics.load_bitmap_table("assets/cards")?;
 
