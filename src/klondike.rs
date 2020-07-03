@@ -76,16 +76,6 @@ impl StackId {
             StackId::Hand => StackId::Hand,
         }
     }
-
-    pub fn is_foundation(&self) -> bool {
-        match self {
-            StackId::Foundation1
-            | StackId::Foundation2
-            | StackId::Foundation3
-            | StackId::Foundation4 => true,
-            _ => false,
-        }
-    }
 }
 
 pub const FOUNDATIONS: &[StackId] = &[
@@ -769,6 +759,11 @@ impl Table {
         Ok(())
     }
 
+    pub fn stack_can_accept_hand(&self, stack_id: StackId) -> bool {
+        let target = self.get_stack(stack_id);
+        target.can_play(self.get_stack(StackId::Hand))
+    }
+
     pub fn go_previous(&mut self) -> Result<(), Error> {
         if self.cards_in_hand() {
             self.target = self.previous_play_location();
@@ -778,5 +773,159 @@ impl Table {
                 .unwrap_or_else(|| Source::stock());
         }
         Ok(())
+    }
+}
+
+pub struct ActiveCardIterator<'a> {
+    table: &'a Table,
+    source: Option<Source>,
+}
+
+impl<'a> ActiveCardIterator<'a> {
+    pub fn new(table: &'a Table) -> Self {
+        let stacks = StackId::into_enum_iter();
+        let source = stacks
+            .filter_map(|stack_id| {
+                let stack = table.get_stack(stack_id);
+                let active_index = stack.next_active_card(None);
+                if active_index.is_some()
+                    && (stack_id == StackId::Waste
+                        || stack.is_top_face_up_card(active_index.unwrap()))
+                {
+                    Some(Source {
+                        stack: stack_id,
+                        index: active_index.unwrap(),
+                    })
+                } else {
+                    None
+                }
+            })
+            .nth(0);
+
+        Self { table, source }
+    }
+}
+
+impl<'a> Iterator for ActiveCardIterator<'a> {
+    type Item = Source;
+
+    fn next(&mut self) -> Option<Source> {
+        let next = self.source;
+        if let Some(mut source) = next {
+            let mut start = Some(source.index);
+            loop {
+                let source_stack = self.table.get_stack(source.stack);
+                let next_index = source_stack.next_active_card(start);
+                if next_index.is_some() {
+                    let source = Source {
+                        stack: source.stack,
+                        index: next_index.unwrap(),
+                    };
+                    self.source = Some(source);
+                    break;
+                } else {
+                    source.stack = source.stack.next();
+                    if source.stack == StackId::Stock {
+                        self.source = None;
+                        break;
+                    }
+                    start = None;
+                }
+            }
+        }
+        next
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Play {
+    Setup,
+    DrawFromStock,
+    RecycleWaste,
+    MoveCards(Source, StackId),
+}
+
+#[derive(Debug)]
+pub struct CardPlayIterator<'a> {
+    table: &'a Table,
+    card: &'a Card,
+    source: Source,
+    play: Option<Play>,
+}
+
+impl<'a> CardPlayIterator<'a> {
+    pub fn new(table: &'a Table, card: &'a Card, source: Source) -> Self {
+        let play = Self::next_legal_play(table, card, source, StackId::Waste);
+        Self {
+            table,
+            card,
+            source,
+            play,
+        }
+    }
+
+    pub fn next_legal_play(
+        table: &'a Table,
+        card: &'a Card,
+        source: Source,
+        start: StackId,
+    ) -> Option<Play> {
+        let mut target = Some(start);
+        loop {
+            if let Some(current_target) = target {
+                let stack = table.get_stack(current_target);
+                let source_stack = table.get_stack(source.stack);
+                let moving_cards_count = source_stack.cards.len() - source.index;
+                assert!(moving_cards_count > 0);
+                if stack.can_play_card(card, moving_cards_count) {
+                    return Some(Play::MoveCards(source, current_target));
+                }
+                target = current_target.next_no_wrap();
+            } else {
+                break;
+            }
+        }
+        None
+    }
+}
+
+impl<'a> Iterator for CardPlayIterator<'a> {
+    type Item = Play;
+
+    fn next(&mut self) -> Option<Play> {
+        let next_play = self.play;
+        if let Some(play) = next_play {
+            loop {
+                match play {
+                    Play::DrawFromStock | Play::RecycleWaste => {
+                        return None;
+                    }
+                    _ => {
+                        if let Some(legal) = next_play {
+                            match legal {
+                                Play::MoveCards(_, target) => {
+                                    let next_target = target.next_no_wrap();
+                                    if let Some(next_target) = next_target {
+                                        self.play = Self::next_legal_play(
+                                            self.table,
+                                            self.card,
+                                            self.source,
+                                            next_target,
+                                        );
+                                    } else {
+                                        self.play = None;
+                                    }
+                                }
+                                _ => {
+                                    self.play = None;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        next_play
     }
 }
