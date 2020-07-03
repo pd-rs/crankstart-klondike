@@ -1,10 +1,10 @@
 extern crate alloc;
 
-use alloc::vec::Vec;
+use alloc::{fmt, vec::Vec};
 use anyhow::Error;
 use core::mem;
 use enum_iterator::IntoEnumIterator;
-use rand::{prelude::*, seq::SliceRandom, SeedableRng};
+use rand::{seq::SliceRandom, SeedableRng};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
 pub enum StackId {
@@ -25,23 +25,37 @@ pub enum StackId {
 }
 
 impl StackId {
-    pub fn next(&self) -> Self {
+    fn next_impl(&self, wrap: bool) -> Option<Self> {
         match self {
-            StackId::Stock => StackId::Waste,
-            StackId::Waste => StackId::Foundation1,
-            StackId::Foundation1 => StackId::Foundation2,
-            StackId::Foundation2 => StackId::Foundation3,
-            StackId::Foundation3 => StackId::Foundation4,
-            StackId::Foundation4 => StackId::Tableau1,
-            StackId::Tableau1 => StackId::Tableau2,
-            StackId::Tableau2 => StackId::Tableau3,
-            StackId::Tableau3 => StackId::Tableau4,
-            StackId::Tableau4 => StackId::Tableau5,
-            StackId::Tableau5 => StackId::Tableau6,
-            StackId::Tableau6 => StackId::Tableau7,
-            StackId::Tableau7 => StackId::Stock,
-            StackId::Hand => StackId::Hand,
+            StackId::Stock => Some(StackId::Waste),
+            StackId::Waste => Some(StackId::Foundation1),
+            StackId::Foundation1 => Some(StackId::Foundation2),
+            StackId::Foundation2 => Some(StackId::Foundation3),
+            StackId::Foundation3 => Some(StackId::Foundation4),
+            StackId::Foundation4 => Some(StackId::Tableau1),
+            StackId::Tableau1 => Some(StackId::Tableau2),
+            StackId::Tableau2 => Some(StackId::Tableau3),
+            StackId::Tableau3 => Some(StackId::Tableau4),
+            StackId::Tableau4 => Some(StackId::Tableau5),
+            StackId::Tableau5 => Some(StackId::Tableau6),
+            StackId::Tableau6 => Some(StackId::Tableau7),
+            StackId::Tableau7 => {
+                if wrap {
+                    Some(StackId::Stock)
+                } else {
+                    None
+                }
+            }
+            StackId::Hand => Some(StackId::Hand),
         }
+    }
+
+    pub fn next_no_wrap(&self) -> Option<Self> {
+        self.next_impl(false)
+    }
+
+    pub fn next(&self) -> Self {
+        self.next_impl(true).expect("next")
     }
 
     pub fn previous(&self) -> Self {
@@ -81,7 +95,7 @@ pub const TABLEAUX: &[StackId] = &[
     StackId::Tableau7,
 ];
 
-#[derive(Clone, Copy, Debug, Eq, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, IntoEnumIterator, Ord, PartialEq, PartialOrd, Hash)]
 pub enum StackType {
     Stock,
     Waste,
@@ -90,7 +104,13 @@ pub enum StackType {
     Hand,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, Hash)]
+pub enum Color {
+    Black,
+    Red,
+}
+
+#[derive(Clone, Copy, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
 pub enum Suit {
     Diamond = 2,
     Club = 1,
@@ -98,10 +118,16 @@ pub enum Suit {
     Spade = 4,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Color {
-    Black,
-    Red,
+impl fmt::Debug for Suit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Suit::Diamond => "♦️",
+            Suit::Club => "♣️",
+            Suit::Heart => "♥️",
+            Suit::Spade => "♠️",
+        };
+        f.write_str(s)
+    }
 }
 
 impl Suit {
@@ -153,7 +179,7 @@ impl From<Rank> for &'static str {
     }
 }
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Card {
     pub suit: Suit,
     pub rank: Rank,
@@ -171,7 +197,15 @@ impl Card {
     }
 }
 
-#[derive(Debug)]
+impl fmt::Debug for Card {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let face_up = if self.face_up { "" } else { "-" };
+        let rank: &str = self.rank.into();
+        f.write_fmt(format_args!("{}{}{:?}", face_up, rank, self.suit))
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Stack {
     pub stack_id: StackId,
     pub stack_type: StackType,
@@ -179,6 +213,15 @@ pub struct Stack {
 }
 
 impl Stack {
+    pub fn find_card(&self, rank: Rank, suit: Suit) -> Option<usize> {
+        self.cards
+            .iter()
+            .enumerate()
+            .filter(|(_index, card)| card.rank == rank && card.suit == suit)
+            .map(|(index, _card)| index)
+            .nth(0)
+    }
+
     pub fn top_card_index(&self) -> usize {
         if self.cards.is_empty() {
             0
@@ -243,10 +286,7 @@ impl Stack {
     }
 
     pub fn next_active_card(&self, start_index: Option<usize>) -> Option<usize> {
-        if self.cards.is_empty() {
-            if self.stack_type == StackType::Stock {
-                return Some(0);
-            }
+        if self.cards.is_empty() || self.stack_type == StackType::Stock {
             return None;
         }
         let max_index = self.cards.len() - 1;
@@ -272,23 +312,38 @@ impl Stack {
         }
     }
 
-    pub fn foundation_can_accept_hand(&self, hand: &Stack) -> bool {
-        if hand.cards.len() > 1 {
-            false
+    pub fn is_top_face_up_card(&self, index: usize) -> bool {
+        if self.cards.is_empty() {
+            return false;
+        }
+        let max_index = self.cards.len() - 1;
+        for search_index in 0..=max_index {
+            if self.cards[search_index].face_up {
+                return search_index == index;
+            }
+        }
+        return false;
+    }
+
+    pub fn foundation_can_accept_card(&self, card: &Card) -> bool {
+        if self.cards.is_empty() {
+            if card.rank == Rank::Ace {
+                match self.stack_id {
+                    StackId::Foundation1 => card.suit == Suit::Spade,
+                    StackId::Foundation2 => card.suit == Suit::Club,
+                    StackId::Foundation3 => card.suit == Suit::Heart,
+                    StackId::Foundation4 => card.suit == Suit::Diamond,
+                    _ => false,
+                }
+            } else {
+                false
+            }
         } else {
-            if let Some(card) = &hand.top_card() {
-                if self.cards.is_empty() {
-                    card.rank == Rank::Ace
+            if let Some(top_card) = self.top_card() {
+                if card.suit == top_card.suit {
+                    top_card.is_one_below(card)
                 } else {
-                    if let Some(top_card) = self.top_card() {
-                        if card.suit == top_card.suit {
-                            top_card.is_one_below(card)
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
+                    false
                 }
             } else {
                 false
@@ -296,17 +351,33 @@ impl Stack {
         }
     }
 
+    pub fn foundation_can_accept_hand(&self, hand: &Stack) -> bool {
+        if hand.cards.len() > 1 {
+            false
+        } else {
+            if let Some(card) = &hand.top_card() {
+                self.foundation_can_accept_card(card)
+            } else {
+                false
+            }
+        }
+    }
+
+    pub fn tableau_can_accept_card(&self, card: &Card) -> bool {
+        if let Some(top_card) = self.top_card() {
+            if !top_card.is_same_color(card) {
+                card.is_one_below(top_card)
+            } else {
+                false
+            }
+        } else {
+            card.rank == Rank::King
+        }
+    }
+
     pub fn tableau_can_accept_hand(&self, hand: &Stack) -> bool {
         if let Some(card) = &hand.bottom_card() {
-            if let Some(top_card) = self.top_card() {
-                if !top_card.is_same_color(card) {
-                    card.is_one_below(top_card)
-                } else {
-                    false
-                }
-            } else {
-                card.rank == Rank::King
-            }
+            self.tableau_can_accept_card(card)
         } else {
             false
         }
@@ -320,12 +391,39 @@ impl Stack {
         }
     }
 
+    pub fn can_play_card(&self, card: &Card, moving_cards_count: usize) -> bool {
+        match self.stack_type {
+            StackType::Foundation => {
+                moving_cards_count == 1 && self.foundation_can_accept_card(card)
+            }
+            StackType::Tableau => self.tableau_can_accept_card(card),
+            _ => false,
+        }
+    }
+
     pub fn flip_top_card(&mut self) {
         if !self.cards.is_empty() {
             let index = self.cards.len() - 1;
             let card = &mut self.cards[index];
             card.face_up = !card.face_up;
         }
+    }
+}
+
+impl fmt::Debug for Stack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_fmt(format_args!("{:?}: [", self.stack_id))?;
+        if self.cards.len() > 0 {
+            let last_index = self.cards.len() - 1;
+            for (index, card) in self.cards.iter().enumerate() {
+                f.write_fmt(format_args!("{:?}", card))?;
+                if index < last_index {
+                    f.write_str(", ")?;
+                }
+            }
+        }
+        f.write_str("]")?;
+        Ok(())
     }
 }
 
@@ -346,13 +444,17 @@ pub fn make_deck(seed: u64) -> Vec<Card> {
     cards
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Source {
     pub stack: StackId,
     pub index: usize,
 }
 
 impl Source {
+    pub fn new(stack: StackId, index: usize) -> Self {
+        Self { stack, index }
+    }
+
     pub fn stock() -> Self {
         Source {
             stack: StackId::Stock,
@@ -361,7 +463,13 @@ impl Source {
     }
 }
 
-#[derive(Debug)]
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_fmt(format_args!("{:?}[{}]", self.stack, self.index))
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Table {
     pub stock: Stack,
     pub waste: Stack,
@@ -469,8 +577,40 @@ impl Table {
         }
     }
 
+    pub fn find_card(&self, rank: Rank, suit: Suit) -> Option<Source> {
+        for stack_id in StackId::into_enum_iter() {
+            let stack = self.get_stack(stack_id);
+            if let Some(index) = stack.find_card(rank, suit) {
+                return Some(Source {
+                    stack: stack_id,
+                    index,
+                });
+            }
+        }
+        None
+    }
+
     pub fn cards_in_hand(&self) -> bool {
         self.in_hand.cards.len() > 0
+    }
+
+    pub fn has_cards_in_stock(&self) -> bool {
+        self.stock.cards.len() > 0
+    }
+
+    pub fn has_cards_in_waste(&self) -> bool {
+        self.waste.cards.len() > 0
+    }
+
+    pub fn cards_in_foundation(&self) -> usize {
+        self.foundations
+            .iter()
+            .map(|stack| stack.cards.len())
+            .sum::<usize>()
+    }
+
+    pub fn winner(&self) -> bool {
+        self.cards_in_foundation() == 52
     }
 
     pub fn next_active_card(&self) -> Option<Source> {
@@ -552,13 +692,16 @@ impl Table {
             }
             self.stock.cards.reverse();
         } else {
-            let start = self.stock.cards.len() - amount_to_deal;
-            let mut dealt_cards = self.stock.cards.split_off(start);
-            for mut card in &mut dealt_cards {
-                card.face_up = true;
+            for _ in 0..amount_to_deal {
+                let mut dealt_card = self.stock.cards.pop().expect("card");
+                dealt_card.face_up = true;
+                self.waste.cards.push(dealt_card);
             }
-            self.waste.cards.append(&mut dealt_cards);
         }
+    }
+
+    pub fn recycle_waste(&mut self) {
+        self.deal_from_stock();
     }
 
     pub fn expose_top_card_of_stack(&mut self, stack_id: StackId) {
@@ -588,14 +731,19 @@ impl Table {
         }
     }
 
-    pub fn put_hand_on_target(&mut self) {
-        let target = self.target;
+    pub fn put_hand_on_stack(&mut self, source: Source, stack_id: StackId) -> usize {
         let mut cards = Vec::new();
         mem::swap(&mut cards, &mut self.in_hand.cards);
-        let target_stack = self.get_stack_mut(target);
+        let target_stack = self.get_stack_mut(stack_id);
         let index = target_stack.cards.len();
         target_stack.cards.append(&mut cards);
-        self.expose_top_card_of_stack(self.source.stack);
+        self.expose_top_card_of_stack(source.stack);
+        index
+    }
+
+    pub fn put_hand_on_target(&mut self) {
+        let target = self.target;
+        let index = self.put_hand_on_stack(self.source, target);
         self.source = Source {
             stack: target,
             index: index,
@@ -611,6 +759,11 @@ impl Table {
         Ok(())
     }
 
+    pub fn stack_can_accept_hand(&self, stack_id: StackId) -> bool {
+        let target = self.get_stack(stack_id);
+        target.can_play(self.get_stack(StackId::Hand))
+    }
+
     pub fn go_previous(&mut self) -> Result<(), Error> {
         if self.cards_in_hand() {
             self.target = self.previous_play_location();
@@ -620,5 +773,159 @@ impl Table {
                 .unwrap_or_else(|| Source::stock());
         }
         Ok(())
+    }
+}
+
+pub struct ActiveCardIterator<'a> {
+    table: &'a Table,
+    source: Option<Source>,
+}
+
+impl<'a> ActiveCardIterator<'a> {
+    pub fn new(table: &'a Table) -> Self {
+        let stacks = StackId::into_enum_iter();
+        let source = stacks
+            .filter_map(|stack_id| {
+                let stack = table.get_stack(stack_id);
+                let active_index = stack.next_active_card(None);
+                if active_index.is_some()
+                    && (stack_id == StackId::Waste
+                        || stack.is_top_face_up_card(active_index.unwrap()))
+                {
+                    Some(Source {
+                        stack: stack_id,
+                        index: active_index.unwrap(),
+                    })
+                } else {
+                    None
+                }
+            })
+            .nth(0);
+
+        Self { table, source }
+    }
+}
+
+impl<'a> Iterator for ActiveCardIterator<'a> {
+    type Item = Source;
+
+    fn next(&mut self) -> Option<Source> {
+        let next = self.source;
+        if let Some(mut source) = next {
+            let mut start = Some(source.index);
+            loop {
+                let source_stack = self.table.get_stack(source.stack);
+                let next_index = source_stack.next_active_card(start);
+                if next_index.is_some() {
+                    let source = Source {
+                        stack: source.stack,
+                        index: next_index.unwrap(),
+                    };
+                    self.source = Some(source);
+                    break;
+                } else {
+                    source.stack = source.stack.next();
+                    if source.stack == StackId::Stock {
+                        self.source = None;
+                        break;
+                    }
+                    start = None;
+                }
+            }
+        }
+        next
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Play {
+    Setup,
+    DrawFromStock,
+    RecycleWaste,
+    MoveCards(Source, StackId),
+}
+
+#[derive(Debug)]
+pub struct CardPlayIterator<'a> {
+    table: &'a Table,
+    card: &'a Card,
+    source: Source,
+    play: Option<Play>,
+}
+
+impl<'a> CardPlayIterator<'a> {
+    pub fn new(table: &'a Table, card: &'a Card, source: Source) -> Self {
+        let play = Self::next_legal_play(table, card, source, StackId::Waste);
+        Self {
+            table,
+            card,
+            source,
+            play,
+        }
+    }
+
+    pub fn next_legal_play(
+        table: &'a Table,
+        card: &'a Card,
+        source: Source,
+        start: StackId,
+    ) -> Option<Play> {
+        let mut target = Some(start);
+        loop {
+            if let Some(current_target) = target {
+                let stack = table.get_stack(current_target);
+                let source_stack = table.get_stack(source.stack);
+                let moving_cards_count = source_stack.cards.len() - source.index;
+                assert!(moving_cards_count > 0);
+                if stack.can_play_card(card, moving_cards_count) {
+                    return Some(Play::MoveCards(source, current_target));
+                }
+                target = current_target.next_no_wrap();
+            } else {
+                break;
+            }
+        }
+        None
+    }
+}
+
+impl<'a> Iterator for CardPlayIterator<'a> {
+    type Item = Play;
+
+    fn next(&mut self) -> Option<Play> {
+        let next_play = self.play;
+        if let Some(play) = next_play {
+            loop {
+                match play {
+                    Play::DrawFromStock | Play::RecycleWaste => {
+                        return None;
+                    }
+                    _ => {
+                        if let Some(legal) = next_play {
+                            match legal {
+                                Play::MoveCards(_, target) => {
+                                    let next_target = target.next_no_wrap();
+                                    if let Some(next_target) = next_target {
+                                        self.play = Self::next_legal_play(
+                                            self.table,
+                                            self.card,
+                                            self.source,
+                                            next_target,
+                                        );
+                                    } else {
+                                        self.play = None;
+                                    }
+                                }
+                                _ => {
+                                    self.play = None;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        next_play
     }
 }

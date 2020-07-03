@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+#[allow(dead_code)]
 mod klondike;
 
 use crate::klondike::*;
@@ -213,6 +214,10 @@ struct Resources {
 
 struct KlondikeGame {
     table: Table,
+    active_cards: Vec<Source>,
+    source_index: usize,
+    targets: Vec<StackId>,
+    target_index: usize,
     views: HashMap<StackId, StackView>,
     #[allow(unused)]
     cards_table: BitmapTable,
@@ -253,8 +258,69 @@ impl KlondikeGame {
         })
     }
 
+    fn update_active_cards(&mut self) {
+        self.active_cards = iter::once(Source::stock())
+            .chain(ActiveCardIterator::new(&self.table))
+            .collect();
+    }
+
+    fn update_targets(&mut self) {
+        let source = self.table.source;
+
+        self.targets = StackId::into_enum_iter()
+            .filter(|stack_id| {
+                *stack_id == source.stack || self.table.stack_can_accept_hand(*stack_id)
+            })
+            .collect();
+        log_to_console!("self.targets = {:#?}", self.targets);
+        self.target_index = self
+            .targets
+            .iter()
+            .position(|stack_id| *stack_id == source.stack)
+            .unwrap_or(0);
+        log_to_console!("target_index = {:#?}", self.target_index);
+    }
+
+    fn go_previous(&mut self) {
+        if self.table.cards_in_hand() {
+            if self.target_index == 0 {
+                self.target_index = self.targets.len().saturating_sub(1);
+            } else {
+                self.target_index -= 1;
+            }
+            self.table.target = self.targets[self.target_index];
+        } else {
+            if self.source_index == 0 {
+                self.source_index = self.active_cards.len().saturating_sub(1);
+            } else {
+                self.source_index -= 1;
+            }
+            self.table.source = self.active_cards[self.source_index];
+        }
+    }
+
+    fn go_next(&mut self) {
+        if self.table.cards_in_hand() {
+            let max_index = self.targets.len().saturating_sub(1);
+            if self.target_index == max_index {
+                self.target_index = 0;
+            } else {
+                self.target_index += 1;
+            }
+            self.table.target = self.targets[self.target_index];
+        } else {
+            let max_index = self.active_cards.len().saturating_sub(1);
+            if self.source_index == max_index {
+                self.source_index = 0;
+            } else {
+                self.source_index += 1;
+            }
+            self.table.source = self.active_cards[self.source_index];
+        }
+    }
+
     pub fn new(playdate: &Playdate) -> Result<Box<Self>, Error> {
-        let table = Table::new(321);
+        let table = Table::new(331);
         let graphics = playdate.graphics();
         let cards_table = graphics.load_bitmap_table("assets/cards")?;
 
@@ -313,8 +379,15 @@ impl KlondikeGame {
             .map(|stack_view| (stack_view.stack_id, stack_view))
             .collect();
         let resources = Self::load_resources(&cards_table, playdate.graphics())?;
+        let active_cards = iter::once(Source::stock())
+            .chain(ActiveCardIterator::new(&table))
+            .collect();
         Ok(Box::new(Self {
             table,
+            active_cards,
+            source_index: 0,
+            targets: Vec::new(),
+            target_index: 0,
             views,
             cards_table,
             resources,
@@ -327,10 +400,10 @@ impl KlondikeGame {
         self.crank_threshhold += change;
 
         if self.crank_threshhold > CRANK_THRESHHOLD {
-            self.table.go_next()?;
+            self.go_next();
             self.crank_threshhold = -CRANK_THRESHHOLD;
         } else if self.crank_threshhold < -CRANK_THRESHHOLD {
-            self.table.go_previous()?;
+            self.go_previous();
             self.crank_threshhold = CRANK_THRESHHOLD;
         }
         Ok(())
@@ -341,9 +414,13 @@ impl KlondikeGame {
         if (pushed & PDButtons_kButtonA) != 0 || (pushed & PDButtons_kButtonB) != 0 {
             if self.table.cards_in_hand() {
                 self.table.put_hand_on_target();
+                self.update_active_cards();
             } else {
                 match self.table.source.stack {
-                    StackId::Stock => self.table.deal_from_stock(),
+                    StackId::Stock => {
+                        self.table.deal_from_stock();
+                        self.update_active_cards();
+                    }
                     StackId::Waste
                     | StackId::Foundation1
                     | StackId::Foundation2
@@ -364,11 +441,12 @@ impl KlondikeGame {
                     StackId::Hand => (),
                 }
                 self.table.target = self.table.source.stack;
+                self.update_targets();
             }
         } else if pushed & PDButtons_kButtonLeft != 0 {
-            self.table.go_previous()?;
+            self.go_previous();
         } else if pushed & PDButtons_kButtonRight != 0 {
-            self.table.go_next()?;
+            self.go_next();
         }
         Ok(())
     }
