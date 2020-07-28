@@ -12,17 +12,17 @@ use anyhow::Error;
 use core::{iter, mem};
 use crankstart::{
     crankstart_game,
+    geometry::{ScreenPoint, ScreenVector},
     graphics::{
-        Bitmap, BitmapDrawMode, BitmapFlip, BitmapTable, Font, Graphics, LCDRect, SolidColor,
+        Bitmap, BitmapTable, Font, Graphics, LCDBitmapDrawMode, LCDBitmapFlip, LCDColor, LCDRect,
+        LCDSolidColor, LCD_COLUMNS, LCD_ROWS,
     },
-    log_to_console, Game, Playdate,
-};
-use crankstart_sys::{
-    PDButtons_kButtonA, PDButtons_kButtonB, PDButtons_kButtonLeft, PDButtons_kButtonRight,
-    LCD_COLUMNS, LCD_ROWS,
+    log_to_console,
+    system::{PDButtons, System},
+    Game, Playdate,
 };
 use enum_iterator::IntoEnumIterator;
-use euclid::{Point2D, Vector2D};
+use euclid::{vec2, Point2D, Vector2D};
 use hashbrown::HashMap;
 use rand::{prelude::*, seq::SliceRandom, SeedableRng};
 
@@ -43,10 +43,6 @@ const CARD_WIDTH: i32 = 50;
 const CARD_HEIGHT: i32 = 70;
 
 const CRANK_THRESHHOLD: i32 = 10;
-
-pub struct ScreenSpace;
-pub type ScreenPoint = Point2D<i32, ScreenSpace>;
-pub type ScreenVector = Vector2D<i32, ScreenSpace>;
 
 #[derive(Debug)]
 enum FanDirection {
@@ -94,10 +90,9 @@ impl StackView {
         resources.empty.draw(
             None,
             None,
-            self.position.x,
-            self.position.y,
-            BitmapDrawMode::Copy,
-            BitmapFlip::Unflipped,
+            self.position,
+            LCDBitmapDrawMode::kDrawModeCopy,
+            LCDBitmapFlip::kBitmapUnflipped,
             SCREEN_CLIP,
         )?;
         Ok(())
@@ -105,7 +100,7 @@ impl StackView {
 
     fn draw_card_at(
         card: &Card,
-        postion: &ScreenPoint,
+        position: &ScreenPoint,
         resources: &Resources,
     ) -> Result<(), Error> {
         let bitmap = if card.face_up {
@@ -120,10 +115,9 @@ impl StackView {
         bitmap.draw(
             None,
             None,
-            postion.x,
-            postion.y,
-            BitmapDrawMode::Copy,
-            BitmapFlip::Unflipped,
+            *position,
+            LCDBitmapDrawMode::kDrawModeCopy,
+            LCDBitmapFlip::kBitmapUnflipped,
             SCREEN_CLIP,
         )?;
         Ok(())
@@ -142,10 +136,9 @@ impl StackView {
         bitmap.draw(
             None,
             None,
-            self.position.x,
-            self.position.y,
-            BitmapDrawMode::Copy,
-            BitmapFlip::Unflipped,
+            self.position,
+            LCDBitmapDrawMode::kDrawModeCopy,
+            LCDBitmapFlip::kBitmapUnflipped,
             SCREEN_CLIP,
         )?;
         Ok(())
@@ -319,9 +312,9 @@ impl KlondikeGame {
         }
     }
 
-    pub fn new(playdate: &Playdate) -> Result<Box<Self>, Error> {
+    pub fn new(_playdate: &Playdate) -> Result<Box<Self>, Error> {
         let table = Table::new(331);
-        let graphics = playdate.graphics();
+        let graphics = Graphics::get();
         let cards_table = graphics.load_bitmap_table("assets/cards")?;
 
         let foundation_gutter_count = (FOUNDATIONS.len() - 1) as i32;
@@ -378,7 +371,7 @@ impl KlondikeGame {
             .chain(iter::once(waste).chain(iter::once(in_hand)))
             .map(|stack_view| (stack_view.stack_id, stack_view))
             .collect();
-        let resources = Self::load_resources(&cards_table, playdate.graphics())?;
+        let resources = Self::load_resources(&cards_table, Graphics::get())?;
         let active_cards = iter::once(Source::stock())
             .chain(ActiveCardIterator::new(&table))
             .collect();
@@ -395,8 +388,8 @@ impl KlondikeGame {
         }))
     }
 
-    fn check_crank(&mut self, playdate: &mut Playdate) -> Result<(), Error> {
-        let change = playdate.system().get_crank_change()? as i32;
+    fn check_crank(&mut self, _playdate: &mut Playdate) -> Result<(), Error> {
+        let change = System::get().get_crank_change()? as i32;
         self.crank_threshhold += change;
 
         if self.crank_threshhold > CRANK_THRESHHOLD {
@@ -409,9 +402,11 @@ impl KlondikeGame {
         Ok(())
     }
 
-    fn check_buttons(&mut self, playdate: &mut Playdate) -> Result<(), Error> {
-        let (_, pushed, _) = playdate.system().get_button_state()?;
-        if (pushed & PDButtons_kButtonA) != 0 || (pushed & PDButtons_kButtonB) != 0 {
+    fn check_buttons(&mut self, _playdate: &mut Playdate) -> Result<(), Error> {
+        let (_, pushed, _) = System::get().get_button_state()?;
+        if (pushed & PDButtons::kButtonA) == PDButtons::kButtonA
+            || (pushed & PDButtons::kButtonB) == PDButtons::kButtonB
+        {
             if self.table.cards_in_hand() {
                 self.table.put_hand_on_target();
                 self.update_active_cards();
@@ -443,9 +438,9 @@ impl KlondikeGame {
                 self.table.target = self.table.source.stack;
                 self.update_targets();
             }
-        } else if pushed & PDButtons_kButtonLeft != 0 {
+        } else if pushed & PDButtons::kButtonLeft == PDButtons::kButtonLeft {
             self.go_previous();
-        } else if pushed & PDButtons_kButtonRight != 0 {
+        } else if pushed & PDButtons::kButtonRight == PDButtons::kButtonRight {
             self.go_next();
         }
         Ok(())
@@ -475,7 +470,7 @@ impl Game for KlondikeGame {
             }
         }
 
-        playdate.graphics().clear(SolidColor::White)?;
+        Graphics::get().clear(LCDColor::Solid(LCDSolidColor::kColorWhite))?;
 
         for (stack_id, view) in &self.views {
             if *stack_id != StackId::Hand || cards_in_hand {
@@ -499,10 +494,9 @@ impl Game for KlondikeGame {
         self.resources.point.draw(
             None,
             None,
-            position.x + CARD_WIDTH / 2,
-            position.y + CARD_HEIGHT / 2,
-            BitmapDrawMode::Copy,
-            BitmapFlip::Unflipped,
+            position + vec2(CARD_WIDTH, CARD_HEIGHT) / 2,
+            LCDBitmapDrawMode::kDrawModeCopy,
+            LCDBitmapFlip::kBitmapUnflipped,
             SCREEN_CLIP,
         )?;
 
