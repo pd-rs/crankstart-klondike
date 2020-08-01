@@ -78,11 +78,7 @@ impl StackView {
 
     #[allow(unused)]
     pub fn get_top_card_position(&self, stack: &Stack) -> ScreenPoint {
-        let index = if stack.cards.is_empty() {
-            0
-        } else {
-            stack.cards.len() - 1
-        };
+        let index = if stack.is_empty() { 0 } else { stack.len() - 1 };
         self.get_card_position(index)
     }
 
@@ -124,23 +120,24 @@ impl StackView {
     }
 
     fn draw_squared(&self, stack: &Stack, resources: &Resources) -> Result<(), Error> {
-        let card = &stack.cards[stack.cards.len() - 1];
-        let bitmap = if card.face_up {
-            resources
-                .card_bitmaps
-                .get(&(card.suit, card.rank))
-                .unwrap_or(&resources.empty)
-        } else {
-            &resources.back
-        };
-        bitmap.draw(
-            None,
-            None,
-            self.position,
-            LCDBitmapDrawMode::kDrawModeCopy,
-            LCDBitmapFlip::kBitmapUnflipped,
-            SCREEN_CLIP,
-        )?;
+        if let Some(card) = stack.get_top_card() {
+            let bitmap = if card.face_up {
+                resources
+                    .card_bitmaps
+                    .get(&(card.suit, card.rank))
+                    .unwrap_or(&resources.empty)
+            } else {
+                &resources.back
+            };
+            bitmap.draw(
+                None,
+                None,
+                self.position,
+                LCDBitmapDrawMode::kDrawModeCopy,
+                LCDBitmapFlip::kBitmapUnflipped,
+                SCREEN_CLIP,
+            )?;
+        }
         Ok(())
     }
 
@@ -152,7 +149,7 @@ impl StackView {
         direction: &FanDirection,
         visible: usize,
     ) -> Result<(), Error> {
-        let cards_in_stack = stack.cards.len();
+        let cards_in_stack = stack.len();
         let cards_to_draw = cards_in_stack.min(visible);
         let mut card_pos = self.position;
 
@@ -164,16 +161,17 @@ impl StackView {
         let start = cards_in_stack - cards_to_draw;
         let max_index = cards_in_stack - 1;
         for index in start..cards_in_stack {
-            let card = &stack.cards[index];
-            if card.face_up
-                && index < max_index
-                && index == source.index
-                && stack.stack_id == source.stack
-            {
-                let peeked = card_pos - Vector2D::new(0, CARD_HEIGHT / 4);
-                Self::draw_card_at(card, &peeked, resources)?;
-            } else {
-                Self::draw_card_at(card, &card_pos, resources)?;
+            if let Some(card) = stack.get_card(index) {
+                if card.face_up
+                    && index < max_index
+                    && index == source.index
+                    && stack.stack_id == source.stack
+                {
+                    let peeked = card_pos - Vector2D::new(0, CARD_HEIGHT / 4);
+                    Self::draw_card_at(card, &peeked, resources)?;
+                } else {
+                    Self::draw_card_at(card, &card_pos, resources)?;
+                }
             }
             card_pos += fan_vector;
         }
@@ -182,7 +180,7 @@ impl StackView {
     }
 
     fn draw(&self, source: &Source, stack: &Stack, resources: &Resources) -> Result<(), Error> {
-        if stack.cards.len() == 0 {
+        if stack.is_empty() {
             self.draw_empty(resources)?;
         } else {
             match &self.mode {
@@ -302,13 +300,15 @@ impl KlondikeGame {
             }
             self.table.target = self.targets[self.target_index];
         } else {
-            let max_index = self.active_cards.len().saturating_sub(1);
-            if self.source_index == max_index {
-                self.source_index = 0;
-            } else {
-                self.source_index += 1;
+            if self.active_cards.len() > 0 {
+                let max_index = self.active_cards.len().saturating_sub(1);
+                if self.source_index >= max_index {
+                    self.source_index = 0;
+                } else {
+                    self.source_index += 1;
+                }
+                self.table.source = self.active_cards[self.source_index];
             }
-            self.table.source = self.active_cards[self.source_index];
         }
     }
 

@@ -209,10 +209,31 @@ impl fmt::Debug for Card {
 pub struct Stack {
     pub stack_id: StackId,
     pub stack_type: StackType,
-    pub cards: Vec<Card>,
+    cards: Vec<Card>,
 }
 
 impl Stack {
+    pub fn get_card(&self, index: usize) -> Option<&Card> {
+        self.cards.get(index)
+    }
+
+    pub fn get_top_card(&self) -> Option<&Card> {
+        let len = self.len();
+        if len > 0 {
+            self.get_card(len - 1)
+        } else {
+            None
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.cards.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cards.is_empty()
+    }
+
     pub fn find_card(&self, rank: Rank, suit: Suit) -> Option<usize> {
         self.cards
             .iter()

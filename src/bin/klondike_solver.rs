@@ -64,7 +64,7 @@ impl WeightedPlay {
                 | StackId::Tableau7 => match source.stack {
                     StackId::Waste => {
                         let stack = table.get_stack(source.stack);
-                        let card = &stack.cards[source.index];
+                        let card = stack.get_card(source.index).expect("get_card");
                         let score = 5;
                         let priority = if card.rank == Rank::King {
                             Self::waste_king_priority(source, target, stack, card, table)
@@ -101,7 +101,7 @@ impl WeightedPlay {
         let stack = table.get_stack(source.stack);
         let score = 0;
         if stack.is_top_face_up_card(source.index) {
-            if stack.cards.len() > 0 {
+            if stack.len() > 0 {
                 (score, source.index as isize + 1)
             } else {
                 (score, 1)
@@ -128,7 +128,7 @@ impl WeightedPlay {
                 | StackId::Tableau6
                 | StackId::Tableau7 => {
                     let stack = table.get_stack(queen_card_location.stack);
-                    let card = &stack.cards[queen_card_location.index];
+                    let card = stack.get_card(queen_card_location.index).expect("get_card");
                     if card.face_up {
                         1
                     } else {
@@ -195,7 +195,7 @@ impl<'a> Iterator for PlayIterator<'a> {
                         let next_active_card = iterator.next();
                         if let Some(active_card) = next_active_card {
                             let stack = self.table.get_stack(active_card.stack);
-                            let card = &stack.cards[active_card.index];
+                            let card = stack.get_card(active_card.index).expect("get_card");
                             let card_play_iterator =
                                 CardPlayIterator::new(self.table, card, active_card);
                             *card_iterator = Some(card_play_iterator);
@@ -269,7 +269,7 @@ impl SearchNode {
                     _ => {
                         let stack = self.table.get_stack(source.stack);
                         if source.index == 0 {
-                            if stack.cards[0].rank == Rank::King {
+                            if stack.get_card(0).expect("get_card").rank == Rank::King {
                                 return None;
                             } else {
                                 Some(*play)
@@ -437,9 +437,6 @@ struct Opt {
     /// seed
     #[argh(option, default = "326")]
     seed: u64,
-    /// recursive
-    #[argh(switch, short = 'r')]
-    recursive: bool,
 }
 
 fn main() -> Result<(), Error> {
