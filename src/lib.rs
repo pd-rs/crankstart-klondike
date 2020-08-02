@@ -26,6 +26,24 @@ use euclid::{vec2, Point2D, Vector2D};
 use hashbrown::HashMap;
 use rand::{prelude::*, seq::SliceRandom, SeedableRng};
 
+const WINABLE_SEEDS: &[u64] = &[
+    322, 331, 341, 1004, 1006, 1013, 1016, 1018, 1021, 1023, 1026, 1032, 1038, 1040, 1041, 1042,
+    1044, 1055, 1056, 1058, 1061, 1064, 1079, 1082, 1088, 1093, 1095, 1104, 1113, 1118, 1119, 1120,
+    1125, 1132, 1138, 1145, 1146, 1165, 1172, 1176, 1177, 1178, 1180, 1181, 1191, 1193, 1195, 1203,
+    1207, 1208, 1211, 1215, 1219, 1222, 1225, 1227, 1229, 1231, 1239, 1240, 1244, 1245, 1247, 1248,
+    1249, 1252, 1256, 1265, 1272, 1273, 1274, 1275, 1277, 1278, 1291, 1293, 1295, 1306, 1307, 1308,
+    1312, 1318, 1320, 1329, 1330, 1336, 1341, 1354, 1357, 1360, 1362, 1366, 1367, 1369, 1373, 1378,
+    1379, 1380, 1382, 1385, 1386, 1397, 1409, 1415, 1418, 1428, 1434, 1435, 1441, 1447, 1448, 1451,
+    1455, 1458, 1460, 1463, 1466, 1476, 1477, 1478, 1481, 1497, 1499, 1512, 1515, 1518, 1520, 1527,
+    1532, 1536, 1541, 1542, 1545, 1556, 1557, 1561, 1562, 1573, 1581, 1585, 1592, 1599, 1600, 1602,
+    1616, 1621, 1622, 1623, 1624, 1625, 1627, 1628, 1631, 1632, 1639, 1642, 1653, 1657, 1659, 1660,
+    1668, 1678, 1679, 1682, 1683, 1684, 1694, 1712, 1714, 1731, 1748, 1750, 1753, 1754, 1758, 1762,
+    1764, 1777, 1778, 1791, 1808, 1812, 1813, 1816, 1825, 1846, 1851, 1860, 1864, 1866, 1867, 1869,
+    1872, 1876, 1882, 1884, 1886, 1889, 1891, 1893, 1896, 1901, 1902, 1904, 1906, 1916, 1920, 1921,
+    1922, 1927, 1929, 1934, 1935, 1943, 1944, 1946, 1954, 1955, 1956, 1959, 1968, 1972, 1978, 1987,
+    1990, 1993,
+];
+
 const SCREEN_CLIP: LCDRect = LCDRect {
     left: 0,
     right: LCD_COLUMNS as i32,
@@ -263,13 +281,11 @@ impl KlondikeGame {
                 *stack_id == source.stack || self.table.stack_can_accept_hand(*stack_id)
             })
             .collect();
-        log_to_console!("self.targets = {:#?}", self.targets);
         self.target_index = self
             .targets
             .iter()
             .position(|stack_id| *stack_id == source.stack)
             .unwrap_or(0);
-        log_to_console!("target_index = {:#?}", self.target_index);
     }
 
     fn go_previous(&mut self) {
@@ -313,7 +329,10 @@ impl KlondikeGame {
     }
 
     pub fn new(_playdate: &Playdate) -> Result<Box<Self>, Error> {
-        let table = Table::new(331);
+        let (secs, _) = System::get().get_seconds_since_epoch()?;
+        let mut rng = rand_pcg::Pcg32::seed_from_u64(secs as u64);
+        let seed = WINABLE_SEEDS.choose(&mut rng).expect("seed");
+        let table = Table::new(*seed);
         let graphics = Graphics::get();
         let cards_table = graphics.load_bitmap_table("assets/cards")?;
 

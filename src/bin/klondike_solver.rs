@@ -9,9 +9,11 @@ use crate::klondike::{
 };
 use argh::FromArgs;
 use core::iter::Iterator;
+use rayon::prelude::*;
 use std::{
     cmp::Ordering,
     collections::HashSet,
+    fs::File,
     io::{stdin, stdout, Write},
 };
 
@@ -311,8 +313,8 @@ impl SearchNode {
     }
 }
 
-fn test_plays_iter(table: Table, opt: &Opt) {
-    let mut stepping = true;
+fn test_plays_iter(table: Table, verbose: bool, start_stepping: bool) -> Option<Vec<Play>> {
+    let mut stepping = start_stepping;
     let mut max_foundation = 0;
     let mut search_nodes = Vec::new();
     let mut tables: HashSet<Table> = HashSet::new();
@@ -328,7 +330,7 @@ fn test_plays_iter(table: Table, opt: &Opt) {
             traverse = parent;
         }
         parents.reverse();
-        let plays: Vec<Play> = parents
+        let mut plays: Vec<Play> = parents
             .iter()
             .map(|parent| search_nodes[*parent].play)
             .collect();
@@ -346,7 +348,7 @@ fn test_plays_iter(table: Table, opt: &Opt) {
                 _ => (),
             }
         } else if iterations % 1_000_000 == 1 {
-            if opt.verbose {
+            if verbose {
                 println!("plays: {:?}", plays);
                 println!("table: {:#?}", search_nodes[last_index].table);
             }
@@ -354,7 +356,7 @@ fn test_plays_iter(table: Table, opt: &Opt) {
         let cards_in_foundation = search_nodes[last_index].table.cards_in_foundation();
         if cards_in_foundation > max_foundation {
             max_foundation = cards_in_foundation;
-            if opt.verbose {
+            if verbose {
                 println!("new max foundation {}", max_foundation);
                 println!("plays: {:?}", plays);
                 println!("table: {:#?}", search_nodes[last_index].table);
@@ -362,12 +364,15 @@ fn test_plays_iter(table: Table, opt: &Opt) {
         }
         if let Some(node) = search_nodes[last_index].search(len, &plays, stepping) {
             if node.table.winner() {
-                println!("Winner! {:#?}", node.table);
-                println!("plays: {:?} final {:?}", plays, node.play);
-                break;
+                plays.push(node.play);
+                if verbose {
+                    println!("Winner! {:#?}", node.table);
+                    println!("plays: {:?} final {:?}", plays, node.play);
+                }
+                return Some(plays);
             }
             if stepping {
-                if opt.verbose {
+                if verbose {
                     println!("{:#?}", node.table);
                     println!("{:#?}", node.weighted_plays);
                 }
@@ -380,7 +385,7 @@ fn test_plays_iter(table: Table, opt: &Opt) {
                 let len = search_nodes.len();
                 if len > 0 {
                     let last_index = len - 1;
-                    if opt.verbose {
+                    if verbose {
                         println!("returning to {}", search_nodes.len() - 1);
                         println!("table: {:#?}", search_nodes[last_index].table);
                         println!(
@@ -393,19 +398,24 @@ fn test_plays_iter(table: Table, opt: &Opt) {
         }
         iterations += 1;
         if iterations > 5_000_000 {
-            println!("Iteration limit met");
-            println!("plays: {:?}", plays);
-            let len = search_nodes.len();
-            if len > 0 {
-                let last_index = len - 1;
-                println!("table: {:#?}", search_nodes[last_index].table);
+            if verbose {
+                println!("Iteration limit met");
+                println!("plays: {:?}", plays);
+                let len = search_nodes.len();
+                if len > 0 {
+                    let last_index = len - 1;
+                    println!("table: {:#?}", search_nodes[last_index].table);
+                }
             }
             break;
         }
     }
     if search_nodes.len() == 0 {
-        println!("exhaustive search failed to find win");
+        if verbose {
+            println!("exhaustive search failed to find win");
+        }
     }
+    None
 }
 
 fn make_move(play: Play, table: &Table) -> Table {
@@ -429,22 +439,54 @@ fn make_move(play: Play, table: &Table) -> Table {
 }
 
 /// Options
-#[derive(FromArgs, Debug)]
+#[derive(FromArgs, Debug, Clone, Copy)]
 struct Opt {
     /// verbose
     #[argh(switch)]
     verbose: bool,
+
     /// seed
     #[argh(option, default = "326")]
     seed: u64,
+
+    /// amount to search
+    #[argh(option, default = "1")]
+    count: u64,
+
+    /// step at start
+    #[argh(switch)]
+    start_stepping: bool,
 }
 
 fn main() -> Result<(), Error> {
     let opt: Opt = argh::from_env();
-    let table = Table::new(opt.seed);
 
-    println!("start table {} {:#?}", opt.seed, table);
-    test_plays_iter(table, &opt);
+    let wins: Vec<(u64, Vec<Play>)> = (opt.seed..opt.seed + opt.count)
+        .into_par_iter()
+        .filter_map(|seed| {
+            let table = Table::new(seed);
+
+            println!("testing {}", seed);
+            if opt.verbose {
+                println!("table {:#?}", table);
+            }
+
+            test_plays_iter(table, opt.verbose, opt.start_stepping)
+                .and_then(|plays| Some((seed, plays)))
+        })
+        .collect();
+    let seeds: Vec<u64> = wins.iter().map(|(seed, _)| *seed).collect();
+    println!("wins = {:?}", seeds);
+    let winning_plays = serde_json::to_string(&wins).map_err(Error::msg)?;
+    let mut file = File::create(format!(
+        "winning_plays_{}_{}.json",
+        opt.seed,
+        opt.seed + opt.count - 1
+    ))
+    .map_err(Error::msg)?;
+    file.write_all(winning_plays.as_bytes())
+        .map_err(Error::msg)?;
+
     Ok(())
 }
 

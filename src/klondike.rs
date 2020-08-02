@@ -5,8 +5,9 @@ use anyhow::Error;
 use core::mem;
 use enum_iterator::IntoEnumIterator;
 use rand::{seq::SliceRandom, SeedableRng};
+use serde::Serialize;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, IntoEnumIterator, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum StackId {
     Stock,
     Waste,
@@ -465,7 +466,7 @@ pub fn make_deck(seed: u64) -> Vec<Card> {
     cards
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash)]
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Source {
     pub stack: StackId,
     pub index: usize,
@@ -858,7 +859,7 @@ impl<'a> Iterator for ActiveCardIterator<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum Play {
     Setup,
     DrawFromStock,

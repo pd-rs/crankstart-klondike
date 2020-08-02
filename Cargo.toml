@@ -26,6 +26,9 @@ enum-iterator = "0.6.0"
 euclid = { version = "0.20.13", default-features = false, features = [ "libm" ] }
 rand = { version = "", default-features = false, features = [ "alloc" ] }
 rand_pcg = "0.2.1"
+serde = { version = "1.0.114", default-features = false, features = [ "derive", "alloc" ] }
+serde_json = {version = "1.0.57", default-features = false, features = [ "alloc" ] }
 
 [target.'cfg(unix)'.dependencies]
 argh = "0.1.3"
+rayon = "1.3.1"
