@@ -102,12 +102,8 @@ impl StackView {
 
     fn draw_empty(&self, resources: &Resources) -> Result<(), Error> {
         resources.empty.draw(
-            None,
-            None,
             self.position,
-            LCDBitmapDrawMode::kDrawModeCopy,
             LCDBitmapFlip::kBitmapUnflipped,
-            SCREEN_CLIP,
         )?;
         Ok(())
     }
@@ -127,12 +123,8 @@ impl StackView {
             &resources.back
         };
         bitmap.draw(
-            None,
-            None,
             *position,
-            LCDBitmapDrawMode::kDrawModeCopy,
             LCDBitmapFlip::kBitmapUnflipped,
-            SCREEN_CLIP,
         )?;
         Ok(())
     }
@@ -148,12 +140,8 @@ impl StackView {
                 &resources.back
             };
             bitmap.draw(
-                None,
-                None,
                 self.position,
-                LCDBitmapDrawMode::kDrawModeCopy,
                 LCDBitmapFlip::kBitmapUnflipped,
-                SCREEN_CLIP,
             )?;
         }
         Ok(())
@@ -511,12 +499,8 @@ impl Game for KlondikeGame {
         };
 
         self.resources.point.draw(
-            None,
-            None,
             position + vec2(CARD_WIDTH, CARD_HEIGHT) / 2,
-            LCDBitmapDrawMode::kDrawModeCopy,
             LCDBitmapFlip::kBitmapUnflipped,
-            SCREEN_CLIP,
         )?;
 
         Ok(())
