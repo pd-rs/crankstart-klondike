@@ -22,7 +22,7 @@ use crankstart::{
     Game, Playdate,
 };
 use enum_iterator::IntoEnumIterator;
-use euclid::{vec2, Point2D, Vector2D};
+use euclid::{Point2D};
 use hashbrown::HashMap;
 use rand::{prelude::*, seq::SliceRandom, SeedableRng};
 
@@ -173,7 +173,7 @@ impl StackView {
                     && index == source.index
                     && stack.stack_id == source.stack
                 {
-                    let peeked = card_pos - Vector2D::new(0, CARD_HEIGHT / 4);
+                    let peeked = card_pos - ScreenVector::new(0, CARD_HEIGHT / 4);
                     Self::draw_card_at(card, &peeked, resources)?;
                 } else {
                     Self::draw_card_at(card, &card_pos, resources)?;
@@ -469,7 +469,7 @@ impl Game for KlondikeGame {
                 .views
                 .get(&self.table.target)
                 .and_then(|view| {
-                    Some(view.get_card_position(top_card_index) + Vector2D::new(10, 10))
+                    Some(view.get_card_position(top_card_index) + ScreenVector::new(10, 10))
                 })
                 .unwrap_or_else(|| ScreenPoint::zero());
             if let Some(in_hand) = self.views.get_mut(&StackId::Hand) {
@@ -490,7 +490,7 @@ impl Game for KlondikeGame {
             let target = self.table.get_stack(self.table.target);
             let target_view = self.views.get(&target.stack_id).expect("target_view");
             let position =
-                target_view.get_card_position(target.top_card_index()) + Vector2D::new(10, 10);
+                target_view.get_card_position(target.top_card_index()) + ScreenVector::new(10, 10);
             position
         } else {
             let source = self.table.get_stack(self.table.source.stack);
@@ -499,7 +499,7 @@ impl Game for KlondikeGame {
         };
 
         self.resources.point.draw(
-            position + vec2(CARD_WIDTH, CARD_HEIGHT) / 2,
+            position + ScreenVector::new(CARD_WIDTH, CARD_HEIGHT) / 2,
             LCDBitmapFlip::kBitmapUnflipped,
         )?;
 
