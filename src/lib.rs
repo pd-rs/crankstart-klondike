@@ -22,7 +22,7 @@ use crankstart::{
     Game, Playdate,
 };
 use enum_iterator::IntoEnumIterator;
-use euclid::{vec2, Point2D, Vector2D};
+use euclid::{Point2D};
 use hashbrown::HashMap;
 use rand::{prelude::*, seq::SliceRandom, SeedableRng};
 
